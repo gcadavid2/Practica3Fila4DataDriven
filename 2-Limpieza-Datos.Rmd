@@ -1,0 +1,39 @@
+---
+title: "2. Limpieza Datos"
+output: html_document
+date: "2025-01-20"
+---
+
+```{r configuracion, include=FALSE}
+require(readr)
+require(dplyr)
+require(lubridate)
+require(recipes)
+```
+
+## Limpieza de los Datos
+
+```{r, include=TRUE}
+column_names <- c("ip", "timestamp", "peticion", "codigo", "bytes")
+column_types <- cols(
+  ip = col_character(),
+  timestamp = col_character(),
+  peticion = col_character(),
+  codigo = col_character(),
+  bytes = col_double()
+)
+
+raw_data <- read_delim("data/epa-http.csv", 
+  col_names = column_names, 
+  col_types = column_types,
+  show_col_types = FALSE,
+  trim_ws = TRUE)
+
+clean_data <- raw_data %>%
+  na.omit() %>%
+  mutate(codigo = as.factor(codigo)) %>%
+  mutate(timestamp = ymd_hms(paste("2024-11", gsub("\\[|\\]", "", timestamp)), truncated = 3))
+
+show(clean_data)
+  
+```
