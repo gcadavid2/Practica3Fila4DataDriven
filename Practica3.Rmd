@@ -1,0 +1,45 @@
+---
+title: "Practica3"
+author: "Fila4"
+date: "2025-01-20"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+```{r packages include=FALSE}
+require(httr)
+require(readr)
+require(xml2)
+require(rvest)
+require(tidytable)
+require(dplyr)
+require(purrr)
+require(stringr)
+require(knitr)
+require(kableExtra)
+require(tidyr)
+require(ggplot2)
+require(zip)
+```
+
+## 1
+Descomprimir el fichero comprimido que contiene los registros del
+servidor, y a partir de los datos extraídos, cargar en data frame los
+registros con las peticiones servidas
+
+
+```{r unzip include=FALSE}
+zip_file<-file.choose()
+zip_folder = "C:\\Antic_Equip\\MASTER\\Datadriven\\Practica3"
+a <- utils::unzip (zip_file, exdir=zip_folder)
+```
+
+```{r carrega_dades}
+file_unzip <- read.csv(a)
+show(file_unzip)
+```
+
+
+
