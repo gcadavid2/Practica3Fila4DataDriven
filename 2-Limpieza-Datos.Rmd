@@ -9,6 +9,8 @@ require(readr)
 require(dplyr)
 require(lubridate)
 require(recipes)
+require(stringr)
+require(tidyverse)
 ```
 
 ## Limpieza de los Datos
@@ -23,17 +25,19 @@ column_types <- cols(
   bytes = col_double()
 )
 
-raw_data <- read_delim("data/epa-http.csv", 
-  col_names = column_names, 
+raw_data <- read_delim("data/epa-http.csv",
+  col_names = column_names,
   col_types = column_types,
   show_col_types = FALSE,
-  trim_ws = TRUE)
+  trim_ws = TRUE
+)
 
 clean_data <- raw_data %>%
   na.omit() %>%
   mutate(codigo = as.factor(codigo)) %>%
-  mutate(timestamp = ymd_hms(paste("2024-11", gsub("\\[|\\]", "", timestamp)), truncated = 3))
+  mutate(timestamp = ymd_hms(paste("2024-11", gsub("\\[|\\]", "", timestamp)), truncated = 3)) %>%
+  separate(peticion, c("tipo", "recurso", "protocolo"), sep = " ", remove = FALSE) %>%
+  mutate(is_error = ifelse(codigo == "200", FALSE, TRUE))
 
 show(clean_data)
-  
 ```
