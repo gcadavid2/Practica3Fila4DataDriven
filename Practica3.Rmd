@@ -1,45 +1,371 @@
 ---
-title: "Practica3"
-author: "Fila4"
-date: "2025-01-20"
-output: html_document
+title: "3. Actividad Evaluable 3"
+author: "Grupo 4: Guillermo Cadavid, Pau Pous"
+output:
+  html_document: default
+  pdf_document: default
+date: "2025-01-25"
 ---
 
 ```{r setup, include=FALSE}
-knitr::opts_chunk$set(echo = TRUE)
-```
-```{r packages include=FALSE}
-require(httr)
-require(readr)
-require(xml2)
-require(rvest)
-require(tidytable)
-require(dplyr)
-require(purrr)
-require(stringr)
-require(knitr)
-require(kableExtra)
-require(tidyr)
-require(ggplot2)
-require(zip)
-```
+knitr::opts_chunk$set(echo = FALSE)
+knitr::opts_chunk$set(eval = TRUE)
 
-## 1
-Descomprimir el fichero comprimido que contiene los registros del
-servidor, y a partir de los datos extraídos, cargar en data frame los
-registros con las peticiones servidas
+# Libraries
+library(hms)
+library(readr)
+library(lubridate)
+library(stringr)
+library(tidyverse)
+library(ggExtra)
+library(mltools)
+library(data.table)
+library(GGally)
+library(kableExtra)
 
-
-```{r unzip include=FALSE}
-zip_file<-file.choose()
-zip_folder = "C:\\Antic_Equip\\MASTER\\Datadriven\\Practica3"
-a <- utils::unzip (zip_file, exdir=zip_folder)
+# Init
+data_folder <- paste(str_trim(getwd()), "/data", sep = "")
+data_file <- paste(data_folder, "/epa-http.csv", sep = "")
 ```
 
-```{r carrega_dades}
-file_unzip <- read.csv(a)
-show(file_unzip)
+## Análisis de logs de servidor usando R
+
+### Obtención y carga de los datos
+
+```{r unzip, include=FALSE, eval=FALSE}
+zip_file <- file.choose()
+data_file <- utils::unzip(zip_file, exdir = data_folder)
 ```
 
+```{r read_data, include = FALSE}
+column_names <- c("ip", "timestamp", "peticion", "codigo", "bytes")
+column_types <- cols(
+  ip = col_character(),
+  timestamp = col_character(),
+  peticion = col_character(),
+  codigo = col_character(),
+  bytes = col_double()
+)
+
+raw_data <- read_delim(data_file,
+  col_names = column_names,
+  col_types = column_types,
+  show_col_types = FALSE,
+  trim_ws = TRUE
+)
+```
+
+Una vez leído el fichero, hemos obtenido los siguientes datos:
+
+| Nombre     | Tipo         | Descripción                                                       |
+|------------|--------------|-------------------------------------------------------------------|
+| ip         | Character    | Dirección IP o URL de la petición                                 |
+| timestamp  | DateTime     | Fecha y hora en que se realiza la petición                        |
+| peticion   | Character    | La petición, con el método, recurso y protocolo utilizado         |
+| codigo     | Character    | Código de la respuesta de la petición                             |
+| bytes      | Numeric      | Tamaño en bytes de la petición                                    |
+
+A continuación, una muestra (`head()`) de los datos obtenidos.
+
+```{r show_head_raw_data, include=TRUE, echo=FALSE}
+head(raw_data) %>%
+  kbl() %>%
+  kable_styling(bootstrap_options = c("responsive"))
+```
+
+### Limpieza de los datos
+
+A continuación, se muestran los datos una vez limpiados y transformados, incluyendo nuevas columnas útiles para el análisis.
+
+#### Columnas añadidas tras la limpieza
+
+| Nombre             | Tipo             | Descripción                                                              |
+|--------------------|------------------|--------------------------------------------------------------------------|
+| ip                 | Character        | Dirección IP o URL de la petición                                        |
+| timestamp          | DateTime/POSIXct | Fecha y hora en que se realiza la petición                               |
+| numeric_timestamp  | Numeric          | Fecha y hora en formato numérico                                         |
+| peticion           | Character        | Petición completa con método, recurso y protocolo                        |
+| metodo             | Factor           | Método utilizado en la petición: GET, POST, DELETE, HEAD                 |
+| recurso            | Character        | Contenido solicitado por la petición                                     |
+| protocolo          | Factor           | Protocolo utilizado en la petición (HTTP/1.0)                            |
+| bytes              | Numeric          | Tamaño en bytes de la petición                                           |
+| is_error           | Factor           | Indica si la respuesta tiene un código de error                          |
+| is_image           | Factor           | Indica si el recurso solicitado es una imagen                            |
+| domain_extension   | Factor           | Extensión del dominio, o "none" si es una dirección IP                   |
+| domain             | Factor           | Dominio de la URL, o "none" si es una dirección IP                       |
+
+#### Muestra de los datos limpiados
+
+Una vez aplicados los pasos de limpieza, aquí se presenta una muestra (`head()`) de los datos procesados.
+
+```{r clean_and_transform_data, include = TRUE, echo = FALSE}
+clean_data <- raw_data %>%
+  na.omit() %>%
+  mutate(codigo = as.factor(codigo)) %>%
+  mutate(timestamp = ymd_hms(paste("2024-11", gsub("\\[|\\]", "", timestamp)), truncated = 3)) %>%
+  mutate(numeric_timestamp = as.numeric(timestamp)) %>%
+  separate(peticion, c("metodo", "recurso", "protocolo"), sep = " ", remove = FALSE) %>%
+  mutate(metodo = as.factor(metodo)) %>%
+  mutate(protocolo = as.factor(protocolo)) %>%
+  mutate(is_error = ifelse(codigo == "200", FALSE, TRUE)) %>%
+  mutate(is_image = str_detect(recurso, ".gif|.png|.jpg|.jpeg")) %>%
+  mutate(
+    domain_extension = case_when(
+      grepl("^\\d{1,3}(\\.\\d{1,3}){3}$", ip) ~ "none",
+      grepl("\\.", ip) ~ sub(".*\\.(.*)$", "\\1", ip),
+      TRUE ~ ""
+    ),
+    domain_extension = as.factor(domain_extension)
+  ) %>%
+  mutate(
+    domain = case_when(
+      grepl("^\\d{1,3}(\\.\\d{1,3}){3}$", ip) ~ "none",
+      grepl("\\.", ip) ~ sub(".*?([a-z0-9\\-]+\\.[a-z]+)$", "\\1", ip),
+      TRUE ~ ""
+    ),
+    domain = as.factor(domain)
+  )
+
+head(clean_data) %>%
+  kbl() %>%
+  kable_styling(bootstrap_options = c("responsive"))
+```
+
+### Exploracion de Datos
+
+```{r identificar, include=FALSE}
+unique_users <- clean_data %>%
+  group_by(ip) %>%
+  summarise(
+    has_error = any(codigo != 200),
+    .groups = "drop"
+  )
+
+total_unique_users <- unique_users %>%
+  summarise(
+    total_users = n(),
+    users_with_errors = sum(has_error),
+    users_without_errors = total_users - users_with_errors
+  )
+
+error_break_down <- clean_data %>%
+  filter(codigo != 200) %>%
+  group_by(codigo) %>%
+  summarise(
+    unique_users = n_distinct(ip),
+    .groups = "drop"
+  )
+```
+
+#### Total usuarios unicos
+
+El total de usuarios únicos se divide en dos categorías:
+
+- Usuarios sin errores: Aquellos cuyas peticiones no generaron errores.
+- Usuarios con errores: Aquellos que han generado al menos un error.
+
+```{r identificar_data_1, include = TRUE, echo = FALSE}
+total_unique_users %>%
+  kbl(
+    col.names = c("Total usuarios unicos", "Usuarios con errores", "Usuarios sin error"),
+    align = "ccc",
+  ) %>%
+  kable_styling(bootstrap_options = c("responsive"))
+```
+
+#### Breakdown usuarios unicos por errores
+
+Listado de los códigos de error recibidos y el número único de usuarios que experimentaron dichos errores.
+
+```{r identificar_data_2, include = TRUE, echo = FALSE}
+error_break_down %>%
+  kbl(
+    col.names = c("Codigo del error", "Numero de usuarios unicos"),
+    align = "lc",
+  ) %>%
+  kable_styling(bootstrap_options = c("responsive"))
+```
+
+### Analisis de Datos
+
+Análisis de la frecuencia de los métodos utilizados en las peticiones.
+
+```{r analisis_datos_data, include = FALSE}
+# Frequencia de peticiones por metodo
+freq_by_method <- clean_data %>%
+  count(metodo, name = "freq")
+
+# Frequencia de peticiones por metodo, solo imagenes
+freq_by_method_just_images <- clean_data %>%
+  filter(is_image) %>%
+  count(metodo, name = "freq")
+```
+
+#### Frecuencia de Peticiones por Método
 
 
+```{r analisis_datos_output_1, include = TRUE, echo = FALSE}
+freq_by_method %>%
+  arrange(desc(freq)) %>%
+  kbl(
+    col.names = c("Metodfo", "Frequencia"),
+    align = "lc",
+  ) %>%
+  kable_styling(bootstrap_options = c("responsive"))
+
+# ggplot() +
+#  geom_col(data = freq_by_method, aes(x = metodo, y = freq), position = "identity") +
+#  labs(
+#    title = "Frequencia de peticiones por metodo",
+#    x = "Metodo",
+#    y = "Frequencia",
+#    fill = "Tipo de enlace"
+#  ) +
+#  theme(legend.position = "right")
+```
+
+#### Frecuencia de Peticiones por Método (Solo Imágenes)
+
+```{r analisis_datos_output_2, include = TRUE, echo = FALSE}
+freq_by_method_just_images %>%
+  arrange(desc(freq)) %>%
+  kbl(
+    col.names = c("Metodo", "Frequencia"),
+    align = "lc",
+  ) %>%
+  kable_styling(bootstrap_options = c("responsive"))
+
+# ggplot() +
+#  geom_col(data = freq_by_method_just_images, aes(x = metodo, y = freq), position = "identity") #+
+#  labs(
+#    title = "Frequencia de peticiones por metodo, solo imagenes",
+#    x = "Metodo",
+#    y = "Frequencia",
+#    fill = "Tipo de enlace"
+#  ) +
+#  theme(legend.position = "right")
+```
+
+### Visualizacion de Datos
+
+#### Gráfico 1: Distribución de Bytes por Extensión de Dominio
+
+Este gráfico muestra la distribución del total de bytes descargados en función de las extensiones de dominio. Solo se consideran las peticiones con código de respuesta correcto (`200`).
+
+
+```{r graphics_1, include = TRUE, echo = FALSE}
+by_size <- clean_data %>%
+  filter(codigo == "200") %>%
+  group_by(domain_extension) %>%
+  summarise(total_kb = sum(bytes) / 1024)
+
+ggplot() +
+  geom_col(data = by_size, aes(x = total_kb, y = domain_extension, fill = "1")) +
+  labs(
+    title = "Distribucion de tamano de peticiones por extension de dominio",
+    x = "KBytes",
+    y = "Extension"
+  ) +
+  theme(legend.position = "none")
+```
+
+#### Gráfico 2: Comparación de Códigos de Respuesta
+
+Este gráfico representa la distribución de los diferentes códigos de respuesta devueltos por el servidor.
+
+
+```{r graphics_2, include = TRUE, echo = FALSE}
+clean_data %>%
+  count(codigo) %>%
+  ggplot(aes(x = "", y = n, fill = codigo)) +
+  geom_col(width = 1, color = "white") +
+  coord_polar("y", start = 0) +
+  labs(
+    title = "Distribucion codigos de Respuesta",
+    fill  = "Codigo"
+  ) +
+  theme_void() +
+  theme(legend.position = "right")
+```
+
+#### Gráfico 3: Peticiones a lo Largo del Tiempo
+
+Visualización del número de peticiones realizadas en intervalos de tiempo específicos, agrupadas por minuto.
+
+```{r graphics_3, include = TRUE, echo = FALSE}
+requests_timeline <- clean_data %>%
+  mutate(timestamp = round_date(timestamp, unit = "minute")) %>%
+  count(timestamp, name = "total")
+
+ggplot() +
+  geom_bar(data = requests_timeline, aes(x = timestamp, y = total), 
+           width = 0.1, stat = "identity", color = "steelblue") + 
+  theme_minimal() +  
+  theme(
+    panel.background = element_blank(),
+    panel.grid.major = element_blank(),
+    panel.grid.minor = element_blank(),
+    axis.line = element_line(color = "black")
+  ) +
+  labs(
+    title = "Peticiones a lo largo del tiempo",
+    x = "Fecha",
+    y = "Total Peticiones"
+  )
+```
+
+## Clustering de Datos
+
+Se realizó un análisis de clustering utilizando el algoritmo de `k-means` para clasificar las peticiones del servidor en base a características como:
+- Tamaño en bytes.
+- Método utilizado.
+- Si la petición contiene un error.
+- Si la petición solicita imágenes.
+
+Los resultados se visualizan en gráficos que muestran cómo se agrupan las peticiones en función de diferentes combinaciones de características.
+
+```{r k_means, include = FALSE}
+k_data <- clean_data %>%
+  mutate(is_image = ifelse(is_image, 1, 0)) %>%
+  mutate(is_error = ifelse(is_error, 1, 0)) %>%
+  mutate(recurso = str_length(recurso)) %>%
+  select(recurso, bytes, metodo, codigo, is_error, is_image, numeric_timestamp, domain_extension)
+
+one_hot_data <- one_hot(as.data.table(k_data), sparsifyNAs = TRUE)
+
+kmeans_output <- kmeans(x = one_hot_data, centers = 3, nstart = 25)
+
+one_hot_data$cluster <- as.character(kmeans_output$cluster)
+
+# ggpairs(one_hot_data, aes(color = cluster, alpha = 0.5), progress = FALSE)
+```
+
+### Bytes vs Fecha
+
+```{r k_means_graphic_1, include = TRUE, echo = FALSE}
+ggplot() +
+  geom_point(
+    data = one_hot_data,
+    mapping = aes(x = bytes, y = numeric_timestamp, colour = cluster)
+  )
+```
+
+### Recurso vs Bytes
+
+```{r k_means_graphic_2, include = TRUE, echo = FALSE}
+ggplot() +
+  geom_point(
+    data = one_hot_data,
+    mapping = aes(x = recurso, y = bytes, colour = cluster)
+  )
+```
+
+### Es imagen vs Recurso
+
+```{r k_means_graphic_3, include = TRUE, echo = FALSE}
+ggplot() +
+  geom_point(
+    data = one_hot_data,
+    mapping = aes(x = is_image, y = recurso, colour = cluster)
+  )
+```
