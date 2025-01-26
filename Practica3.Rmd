@@ -22,6 +22,7 @@ library(mltools)
 library(data.table)
 library(GGally)
 library(kableExtra)
+library(patchwork)
 
 # Init
 data_folder <- paste(str_trim(getwd()), "/data", sep = "")
@@ -262,7 +263,7 @@ by_size <- clean_data %>%
 ggplot() +
   geom_col(data = by_size, aes(x = total_kb, y = domain_extension, fill = "1")) +
   labs(
-    title = "Distribucion de tamano de peticiones por extension de dominio",
+    #title = "Distribucion de tamano de peticiones por extension de dominio",
     x = "KBytes",
     y = "Extension"
   ) +
@@ -281,7 +282,7 @@ clean_data %>%
   geom_col(width = 1, color = "white") +
   coord_polar("y", start = 0) +
   labs(
-    title = "Distribucion codigos de Respuesta",
+    #title = "Distribucion codigos de Respuesta",
     fill  = "Codigo"
   ) +
   theme_void() +
@@ -308,7 +309,7 @@ ggplot() +
     axis.line = element_line(color = "black")
   ) +
   labs(
-    title = "Peticiones a lo largo del tiempo",
+    #title = "Peticiones a lo largo del tiempo",
     x = "Fecha",
     y = "Total Peticiones"
   )
@@ -329,43 +330,138 @@ k_data <- clean_data %>%
   mutate(is_image = ifelse(is_image, 1, 0)) %>%
   mutate(is_error = ifelse(is_error, 1, 0)) %>%
   mutate(recurso = str_length(recurso)) %>%
-  select(recurso, bytes, metodo, codigo, is_error, is_image, numeric_timestamp, domain_extension)
+  mutate(k_bytes = bytes / 1024) %>%
+  mutate(codigo = as.integer(codigo)) %>%
+  select(recurso, k_bytes, metodo, codigo, is_error, is_image, numeric_timestamp, domain_extension)
 
-one_hot_data <- one_hot(as.data.table(k_data), sparsifyNAs = TRUE)
+k_data_one_hot_1 <- one_hot(as.data.table(k_data), sparsifyNAs = TRUE)
+k_data_one_hot_2 <- k_data_one_hot_1
 
-kmeans_output <- kmeans(x = one_hot_data, centers = 3, nstart = 25)
+kmeans_result_1 <- kmeans(x = k_data_one_hot_1, centers = 3, nstart = 25)
+kmeans_result_2 <- kmeans(x = k_data_one_hot_2, centers = 5, nstart = 25)
 
-one_hot_data$cluster <- as.character(kmeans_output$cluster)
-
-# ggpairs(one_hot_data, aes(color = cluster, alpha = 0.5), progress = FALSE)
+k_data_one_hot_1$cluster <- as.character(kmeans_result_1$cluster)
+k_data_one_hot_2$cluster <- as.character(kmeans_result_2$cluster)
 ```
 
-### Bytes vs Fecha
 
-```{r k_means_graphic_1, include = TRUE, echo = FALSE}
-ggplot() +
+### Grafico 1: Tamaño de peticiones vs Timestamp
+
+Este gráfico muestra cómo se agrupan las peticiones en función de su tamaño y el timestamp de la petición.
+
+```{r k_graphic_1, include = TRUE, echo = FALSE}
+p1_1 <- ggplot() +
   geom_point(
-    data = one_hot_data,
-    mapping = aes(x = bytes, y = numeric_timestamp, colour = cluster)
-  )
-```
-
-### Recurso vs Bytes
-
-```{r k_means_graphic_2, include = TRUE, echo = FALSE}
-ggplot() +
+    data = k_data_one_hot_1,
+    mapping = aes(x = k_bytes, y = numeric_timestamp, colour = cluster)
+  ) +
+  labs(title = "k = 3", x = "Timesamp", y = "Kbytes") +
+  theme_minimal()
+p1_2 <- ggplot() +
   geom_point(
-    data = one_hot_data,
-    mapping = aes(x = recurso, y = bytes, colour = cluster)
-  )
+    data = k_data_one_hot_2,
+    mapping = aes(x = k_bytes, y = numeric_timestamp, colour = cluster)
+  ) +
+  labs(title = "k = 5", x = "Timesamp", y = "Kbytes") +
+  theme_minimal()
+
+p1_1 | p1_2 +
+  plot_annotation(title = "Análisis: Tamaño de peticiones vs Timestamp", theme = theme_minimal())
+
 ```
 
-### Es imagen vs Recurso
+### Gráfico 2: Tamaño de peticiones vs Recurso
 
-```{r k_means_graphic_3, include = TRUE, echo = FALSE}
-ggplot() +
+Este gráfico analiza cómo las peticiones se agrupan en función del recurso solicitado y su tamaño.
+
+```{r k_graphic_2, include = TRUE, echo = FALSE}
+p2_1 <- ggplot() +
   geom_point(
-    data = one_hot_data,
-    mapping = aes(x = is_image, y = recurso, colour = cluster)
-  )
+    data = k_data_one_hot_1,
+    mapping = aes(x = recurso, y = k_bytes, colour = cluster)
+  ) +
+  labs(title = "k = 3", x = "Timesamp", y = "Kbytes") +
+  theme_minimal()
+p2_2 <- ggplot() +
+  geom_point(
+    data = k_data_one_hot_2,
+    mapping = aes(x = recurso, y = k_bytes, colour = cluster)
+  ) +
+  labs(title = "k = 5", x = "Timesamp", y = "Kbytes") +
+  theme_minimal()
+
+p2_1 | p2_2 +
+  plot_annotation(title = "Análisis: Tamaño de peticiones vs Recurso", theme = theme_minimal())
+
 ```
+
+### Gráfico 3: Timestamp vs Recurso
+
+Este gráfico muestra la relación entre el timestamp y los recursos solicitados, agrupados por clusters.
+
+
+```{r k_graphic_3, include = TRUE, echo = FALSE}
+p3_1 <- ggplot() +
+  geom_point(
+    data = k_data_one_hot_1,
+    mapping = aes(x = numeric_timestamp, y = recurso, colour = cluster)
+  ) +
+  labs(title = "k = 3", x = "Timesamp", y = "Kbytes") +
+  theme_minimal()
+p3_2 <- ggplot() +
+  geom_point(
+    data = k_data_one_hot_2,
+    mapping = aes(x = numeric_timestamp, y = recurso, colour = cluster)
+  ) +
+  labs(title = "k = 5", x = "Timesamp", y = "Kbytes") +
+  theme_minimal()
+
+p3_1 | p3_2 +
+  plot_annotation(title = "Análisis: Timestamp vs Recurso", theme = theme_minimal())
+
+```
+
+### Gráfico 4: Analisis por Dominio
+
+Se agrupan los dominios en función del total de bytes transferidos, número de peticiones, errores y solicitudes de imágenes.
+
+```{r}
+
+by_domain <- clean_data %>%
+  group_by(domain_extension) %>%
+  summarise(
+    total_bytes = sum(bytes, na.rm = TRUE)/1024,
+    total_requests = n(),
+    error_requests = sum(is_error == TRUE, na.rm = TRUE),
+    image_requests = sum(is_image == TRUE, na.rm = TRUE)
+  )
+
+kmeans_data <- by_domain %>%
+  select(total_bytes, total_requests, error_requests, image_requests)
+
+kmeans_result_1 <- kmeans(kmeans_data, centers = 3, nstart = 25)
+kmeans_result_2 <- kmeans(kmeans_data, centers = 5, nstart = 25)
+
+by_domain_1 <- by_domain
+by_domain_2 <- by_domain
+
+by_domain_1$cluster <- as.factor(kmeans_result_1$cluster)
+by_domain_2$cluster <- as.factor(kmeans_result_2$cluster)
+
+
+p4_1 <- ggplot(by_domain_1, aes(x = total_bytes, y = total_requests, color = cluster)) +
+  geom_point() +
+  labs(title = "k = 3", x = "Kbytes", y = "Peticiones") +
+  theme_minimal()
+
+p4_2 <- ggplot(by_domain_2, aes(x = total_bytes, y = total_requests, color = cluster)) +
+  geom_point() +
+  labs(title = "k = 5", x = "Kbytes", y = "Peticiones") +
+  theme_minimal()
+
+p4_1 | p4_2 +
+  plot_annotation(title = "Análisis de Clustering por Dominio", theme = theme_minimal())
+
+
+```
+
